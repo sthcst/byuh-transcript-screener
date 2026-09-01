@@ -1,27 +1,37 @@
 {
   "name": "byuh-transcript-screener",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.0.0",
+  "description": "BYU Hawaii Transcript Screener - Process Philippine transcripts offline",
+  "main": "build/main.js",
+  "homepage": "./",
+  "author": "BYU Hawaii Admissions",
+  "license": "MIT",
   "dependencies": {
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^13.5.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1"
+  },
+  "devDependencies": {
+    "electron": "27.0.0",
+    "electron-builder": "24.6.4",
+    "concurrently": "8.2.0",
+    "wait-on": "7.0.1"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "react-start": "react-scripts start",
+    "react-build": "react-scripts build && cp public/ollama_service.js build/",
+    "react-test": "react-scripts test",
+    "react-eject": "react-scripts eject",
+    "electron-start": "electron .",
+    "start": "concurrently \"npm run react-start\" \"wait-on http://localhost:3000 && npm run electron-start\"",
+    "build": "npm run react-build && electron-builder",
+    "build-win64": "npm run react-build && electron-builder --win --x64",
+    "build-win": "npm run react-build && electron-builder --win --x64",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
     "extends": [
-      "react-app",
-      "react-app/jest"
+      "react-app"
     ]
   },
   "browserslist": {
@@ -35,5 +45,51 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "build": {
+    "appId": "com.byuhawaii.transcriptscreener",
+    "productName": "BYUH Transcript Screener",
+    "files": [
+      "build/**/*",
+      "build/main.js",
+      "build/preload.js",
+      "build/ollama_service.js",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "buildResources": "public"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "certificateFile": null,
+      "certificatePassword": null,
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BYUH Transcript Screener"
+    },
+    "portable": {
+      "artifactName": "${productName}_${version}_portable.exe"
+    }
   }
 }

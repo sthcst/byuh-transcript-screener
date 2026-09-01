@@ -1,23 +1,40 @@
-import logo from './logo.svg';
+import React, { useState } from 'react';
+import LandingPage from './LandingPage';
+import HighSchoolTranscriptScreener from './HighSchoolTranscriptScreener';
+import TranscriptScreener_Beautiful from './TranscriptScreener_Beautiful';
 import './App.css';
 
 function App() {
+  const [currentPage, setCurrentPage] = useState('landing');
+
+  const handleSelectHighSchool = () => {
+    setCurrentPage('high-school');
+  };
+
+  const handleSelectCollege = () => {
+    setCurrentPage('college');
+  };
+
+  const handleBack = () => {
+    setCurrentPage('landing');
+  };
+
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      {currentPage === 'landing' && (
+        <LandingPage 
+          onSelectHighSchool={handleSelectHighSchool}
+          onSelectCollege={handleSelectCollege}
+        />
+      )}
+
+      {currentPage === 'high-school' && (
+        <HighSchoolTranscriptScreener onBack={handleBack} />
+      )}
+
+      {currentPage === 'college' && (
+        <TranscriptScreener_Beautiful onBack={handleBack} />
+      )}
     </div>
   );
 }
