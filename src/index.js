@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import TranscriptScreener from './TranscriptScreener_Beautiful';
+import './pdfSetup';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
