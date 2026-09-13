@@ -1,7 +1,7 @@
 /**
  * OLLAMA SERVICE MANAGER
- * Handles installation, startup, and status checking of Ollama
- * Runs on Windows with local binaries
+ * Handles startup and status checking of Ollama.
+ * Windows uses the app-managed binary; macOS/Linux use an installed Ollama CLI.
  */
 
 const { spawn, exec } = require('child_process');
@@ -11,15 +11,13 @@ const fs = require('fs');
 const https = require('https');
 
 const OLLAMA_DIR = path.join(os.homedir(), '.byuh-ollama');
-const OLLAMA_EXE = path.join(OLLAMA_DIR, 'ollama.exe');
+const WINDOWS_OLLAMA_EXE = path.join(OLLAMA_DIR, 'ollama.exe');
 const MODEL_DIR = path.join(OLLAMA_DIR, 'models');
 const OLLAMA_DOWNLOAD_URL = 'https://github.com/ollama/ollama/releases/download/v0.1.14/ollama-windows-x64.exe';
 
 let ollamaProcess = null;
+let startedByThisApp = false;
 
-/**
- * Ensure Ollama directory exists
- */
 const ensureOllamaDir = () => {
   if (!fs.existsSync(OLLAMA_DIR)) {
     fs.mkdirSync(OLLAMA_DIR, { recursive: true });
@@ -29,69 +27,69 @@ const ensureOllamaDir = () => {
   }
 };
 
-/**
- * Download Ollama executable if not exists
- */
+const getOllamaExecutable = () => {
+  if (process.env.OLLAMA_BINARY) {
+    return process.env.OLLAMA_BINARY;
+  }
+
+  if (process.platform === 'win32') {
+    return WINDOWS_OLLAMA_EXE;
+  }
+
+  if (process.platform === 'darwin') {
+    const macAppBinary = '/Applications/Ollama.app/Contents/Resources/ollama';
+    if (fs.existsSync(macAppBinary)) {
+      return macAppBinary;
+    }
+  }
+
+  return 'ollama';
+};
+
 const downloadOllama = () => {
   return new Promise((resolve, reject) => {
-    if (fs.existsSync(OLLAMA_EXE)) {
+    if (process.platform !== 'win32') {
+      resolve(true);
+      return;
+    }
+
+    if (fs.existsSync(WINDOWS_OLLAMA_EXE)) {
       console.log('Ollama already downloaded');
       resolve(true);
       return;
     }
 
     console.log('Downloading Ollama...');
-    const file = fs.createWriteStream(OLLAMA_EXE);
+    const file = fs.createWriteStream(WINDOWS_OLLAMA_EXE);
+
+    const finishDownload = (response) => {
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close();
+        console.log('Ollama downloaded successfully');
+        resolve(true);
+      });
+    };
 
     https
       .get(OLLAMA_DOWNLOAD_URL, (response) => {
         if (response.statusCode === 302 || response.statusCode === 301) {
-          // Follow redirect
-          https.get(response.headers.location, (redirectResponse) => {
-            redirectResponse.pipe(file);
-            file.on('finish', () => {
-              file.close();
-              console.log('Ollama downloaded successfully');
-              resolve(true);
-            });
-          });
+          https.get(response.headers.location, finishDownload).on('error', reject);
         } else {
-          response.pipe(file);
-          file.on('finish', () => {
-            file.close();
-            console.log('Ollama downloaded successfully');
-            resolve(true);
-          });
+          finishDownload(response);
         }
       })
       .on('error', (err) => {
-        fs.unlink(OLLAMA_EXE, () => {}); // Delete incomplete file
+        fs.unlink(WINDOWS_OLLAMA_EXE, () => {});
         console.error('Failed to download Ollama:', err);
         reject(err);
       });
   });
 };
 
-/**
- * Start Ollama service
- */
-const startOllama = async () => {
-  try {
-    ensureOllamaDir();
-
-    // Check if already running
-    const isRunning = await checkOllamaStatus();
-    if (isRunning) {
-      console.log('Ollama already running');
-      return true;
-    }
-
-    // Download if needed
-    await downloadOllama();
-
-    // Start Ollama process
-    console.log('Starting Ollama service...');
-    ollamaProcess = spawn(OLLAMA_EXE, ['serve'], {
+const spawnOllama = (executable) => {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, ['serve'], {
       detached: true,
       stdio: 'ignore',
       env: {
@@ -100,10 +98,50 @@ const startOllama = async () => {
       },
     });
 
+    child.once('error', reject);
+    child.once('spawn', () => resolve(child));
+  });
+};
+
+const startOllama = async () => {
+  try {
+    ensureOllamaDir();
+
+    const isRunning = await checkOllamaStatus();
+    if (isRunning) {
+      console.log('Ollama already running');
+      return true;
+    }
+
+    if (process.platform === 'win32') {
+      await downloadOllama();
+    }
+
+    const executable = getOllamaExecutable();
+    console.log(`Starting Ollama service with: ${executable}`);
+
+    try {
+      ollamaProcess = await spawnOllama(executable);
+      startedByThisApp = true;
+    } catch (error) {
+      ollamaProcess = null;
+      startedByThisApp = false;
+
+      if (error && error.code === 'ENOENT' && process.platform !== 'win32') {
+        console.warn('Ollama is not installed on this system. Continuing without local OCR/AI support.');
+        return false;
+      }
+
+      console.warn('Unable to launch Ollama. Continuing without local OCR/AI support:', error.message || error);
+      return false;
+    }
+
+    ollamaProcess.on('error', (error) => {
+      console.warn('Ollama process error:', error.message || error);
+    });
     ollamaProcess.unref();
 
-    // Wait for Ollama to be ready
-    await waitForOllama(30000); // Wait up to 30 seconds
+    await waitForOllama(30000);
 
     console.log('Ollama started successfully');
     return true;
@@ -113,9 +151,6 @@ const startOllama = async () => {
   }
 };
 
-/**
- * Wait for Ollama to be ready
- */
 const waitForOllama = (timeout = 30000) => {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
@@ -125,9 +160,10 @@ const waitForOllama = (timeout = 30000) => {
         if (isReady) {
           clearInterval(checkInterval);
           resolve();
+          return;
         }
       } catch (err) {
-        // Still waiting
+        // Still waiting.
       }
 
       if (Date.now() - startTime > timeout) {
@@ -138,37 +174,38 @@ const waitForOllama = (timeout = 30000) => {
   });
 };
 
-/**
- * Check if Ollama is running
- */
 const checkOllamaStatus = async () => {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
     const response = await fetch('http://localhost:11434/api/tags', {
       method: 'GET',
-      timeout: 2000,
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
     return response.ok;
   } catch (error) {
     return false;
   }
 };
 
-/**
- * Stop Ollama service
- */
 const stopOllama = () => {
   try {
-    if (ollamaProcess) {
+    if (ollamaProcess && startedByThisApp) {
       ollamaProcess.kill();
       ollamaProcess = null;
+      startedByThisApp = false;
     }
 
-    // Also try to kill via taskkill
-    exec('taskkill /IM ollama.exe /F', (err) => {
-      if (!err) {
-        console.log('Ollama stopped');
-      }
-    });
+    if (process.platform === 'win32') {
+      exec('taskkill /IM ollama.exe /F', (err) => {
+        if (!err) {
+          console.log('Ollama stopped');
+        }
+      });
+    }
 
     return true;
   } catch (error) {
@@ -177,9 +214,6 @@ const stopOllama = () => {
   }
 };
 
-/**
- * Pull Llama 2 model
- */
 const pullLlamaModel = async () => {
   try {
     const isRunning = await checkOllamaStatus();
@@ -209,20 +243,16 @@ const pullLlamaModel = async () => {
   }
 };
 
-/**
- * Full setup - download, install, start, pull model
- */
 const setupOllama = async () => {
   try {
     console.log('Setting up Ollama...');
 
-    // Start service
     const started = await startOllama();
     if (!started) {
-      throw new Error('Failed to start Ollama');
+      console.warn('Ollama unavailable; app will continue without local OCR/AI support.');
+      return false;
     }
 
-    // Pull model
     const modelReady = await pullLlamaModel();
     if (!modelReady) {
       console.warn('Model not ready, but Ollama is running');

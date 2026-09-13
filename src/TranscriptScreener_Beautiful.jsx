@@ -257,47 +257,103 @@ const TranscriptScreener = ({ onBack }) => {
           }
         } else {
           // Digital PDF with text layer
+          setIsProcessing(true);
+
           setPdfStatus({
             type: 'digital',
-            message: '✅ Digital PDF detected! Extracting data...',
+            message: `📄 Digital PDF detected. Reading page 1 of ${pdf.numPages}...`,
           });
 
-          // Extract all text from all pages
-          let fullText = '';
+          const withTimeout = (promise, label, timeoutMs = 15000) =>
+            Promise.race([
+              promise,
+              new Promise((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`${label} timed out after ${timeoutMs / 1000} seconds`)),
+                  timeoutMs
+                )
+              ),
+            ]);
+
+          // Page 1 was already extracted above, so do not extract it twice.
+          let fullText = textContent.items.map(item => item.str || '').join(' ') + ' ';
+
           try {
-            for (let i = 1; i <= pdf.numPages; i++) {
-              const pageData = await pdf.getPage(i);
-              const content = await pageData.getTextContent();
-              fullText += content.items.map(item => item.str).join(' ') + ' ';
+            for (let i = 2; i <= pdf.numPages; i++) {
+              setPdfStatus({
+                type: 'digital',
+                message: `📄 Extracting page ${i} of ${pdf.numPages}...`,
+              });
+
+              console.log(`Extracting PDF page ${i} of ${pdf.numPages}`);
+
+              const pageData = await withTimeout(
+                pdf.getPage(i),
+                `Loading page ${i}`
+              );
+
+              const content = await withTimeout(
+                pageData.getTextContent(),
+                `Extracting page ${i}`
+              );
+
+              fullText += content.items.map(item => item.str || '').join(' ') + ' ';
             }
           } catch (extractError) {
             console.error('Error extracting text from pages:', extractError);
+
             setPdfStatus({
               type: 'error',
-              message: '❌ Error reading PDF text. Please try manual entry.',
+              message: `❌ PDF extraction failed: ${extractError.message}`,
             });
+
             setIsProcessing(false);
             return;
           }
 
-          // Try to find school name
+          console.log('PDF extraction complete. Characters extracted:', fullText.length);
+
           const detectedSchool = detectSchoolFromText(fullText);
+
           if (detectedSchool) {
             setSelectedSchool(detectedSchool);
-            setFormData(prev => ({ ...prev, schoolName: detectedSchool.name }));
-            setPdfStatus(prev => ({ ...prev, message: `✅ School detected: ${detectedSchool.name}` }));
-          }
-
-          // Extract numbers that look like grades
-          const grades = extractGradesFromText(fullText);
-          if (grades.length > 0) {
-            // Auto-populate first semester
-            const newSubjects = grades.slice(0, 5).map(g => ({ name: `Subject`, grade: g.toString() }));
             setFormData(prev => ({
               ...prev,
-              subjects: { ...prev.subjects, 'G11S1': newSubjects }
+              schoolName: detectedSchool.name
             }));
           }
+
+          const grades = extractGradesFromText(fullText);
+
+          if (grades.length > 0) {
+            const newSubjects = grades.slice(0, 5).map(g => ({
+              name: 'Subject',
+              grade: g.toString()
+            }));
+
+            setFormData(prev => ({
+              ...prev,
+              subjects: {
+                ...prev.subjects,
+                'G11S1': newSubjects
+              }
+            }));
+          }
+
+          const schoolMessage = detectedSchool
+            ? `School detected: ${detectedSchool.name}.`
+            : 'School name was not automatically detected.';
+
+          const gradeMessage = grades.length > 0
+            ? `${grades.length} possible grade values found.`
+            : 'No grade values were automatically detected.';
+
+          setPdfStatus({
+            type: 'digital',
+            message: `✅ PDF extraction complete. ${schoolMessage} ${gradeMessage}`,
+          });
+
+          setIsProcessing(false);
         }
       } catch (error) {
         console.error('PDF processing error:', error);
