@@ -7,6 +7,7 @@
   "author": "BYU Hawaii Admissions",
   "license": "MIT",
   "dependencies": {
+    "pdfjs-dist": "^3.11.174",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1"
@@ -30,56 +31,22 @@
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
-    "extends": [
-      "react-app"
-    ]
+    "extends": ["react-app"]
   },
   "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
   },
   "build": {
     "appId": "com.byuhawaii.transcriptscreener",
     "productName": "BYUH Transcript Screener",
-    "files": [
-      "build/**/*",
-      "build/main.js",
-      "build/preload.js",
-      "build/ollama_service.js",
-      "node_modules/**/*"
-    ],
-    "directories": {
-      "buildResources": "public"
-    },
+    "files": ["build/**/*", "build/main.js", "build/preload.js", "build/ollama_service.js", "node_modules/**/*"],
+    "directories": {"buildResources": "public"},
     "win": {
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "certificateFile": null,
-      "certificatePassword": null,
-      "signingHashAlgorithms": [
-        "sha256"
-      ],
-      "icon": "public/icon.png"
+        {"target": "nsis", "arch": ["x64"]},
+        {"target": "portable", "arch": ["x64"]}
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -88,8 +55,6 @@
       "createStartMenuShortcut": true,
       "shortcutName": "BYUH Transcript Screener"
     },
-    "portable": {
-      "artifactName": "${productName}_${version}_portable.exe"
-    }
+    "portable": {"artifactName": "${productName}_${version}_portable.exe"}
   }
 }
