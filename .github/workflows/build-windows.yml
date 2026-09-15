@@ -18,6 +18,8 @@ jobs:
       - run: npm install
 
       - run: npm run build-win64
+        env:
+          CI: false
 
       - uses: actions/upload-artifact@v4
         with:
