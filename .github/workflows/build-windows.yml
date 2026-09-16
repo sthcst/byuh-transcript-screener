@@ -17,6 +17,30 @@ jobs:
 
       - run: npm install
 
+      - name: Download Ollama runtime (CPU-only, no GPU libs)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip" -OutFile ollama.zip
+          Expand-Archive -Path ollama.zip -DestinationPath resources/ollama-bin -Force
+          Remove-Item ollama.zip
+          # These are GPU acceleration libraries (CUDA/Vulkan) - not needed on
+          # a CPU-only office laptop, and they're most of the download size.
+          Remove-Item resources/ollama-bin/lib/ollama/cuda_v12 -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item resources/ollama-bin/lib/ollama/cuda_v13 -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item resources/ollama-bin/lib/ollama/vulkan -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Pre-pull the AI vision model into the bundle
+        shell: pwsh
+        env:
+          OLLAMA_MODELS: ${{ github.workspace }}\resources\ollama-models
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:OLLAMA_MODELS | Out-Null
+          Start-Process -FilePath "resources\ollama-bin\ollama.exe" -ArgumentList "serve"
+          Start-Sleep -Seconds 5
+          & "resources\ollama-bin\ollama.exe" pull qwen2.5vl:7b
+          if ($LASTEXITCODE -ne 0) { throw "Model pull failed with exit code $LASTEXITCODE" }
+          Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force
+
       - run: npm run build-win64
         env:
           CI: false

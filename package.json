@@ -42,6 +42,11 @@
     "productName": "BYUH Transcript Screener",
     "files": ["build/**/*", "build/main.js", "build/preload.js", "build/ollama_service.js", "node_modules/**/*"],
     "directories": {"buildResources": "public"},
+    "extraResources": [
+      {"from": "resources/ollama-bin", "to": "ollama-bin"},
+      {"from": "resources/ollama-models", "to": "ollama-models"}
+    ],
+    "compression": "store",
     "win": {
       "target": [
         {"target": "nsis", "arch": ["x64"]},
