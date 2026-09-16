@@ -45,8 +45,13 @@ jobs:
         env:
           CI: false
 
+      - name: Zip the built app (NSIS can't handle a payload this large)
+        shell: pwsh
+        run: |
+          7z a -tzip -mx=0 "dist/BYUH-Transcript-Screener-1.0.0-win64.zip" "dist/win-unpacked/*"
+
       - uses: actions/upload-artifact@v4
         with:
           name: byuh-transcript-screener-windows
           path: |
-            dist/*.exe
+            dist/*.zip
