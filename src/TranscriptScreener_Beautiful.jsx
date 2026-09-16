@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { SCHOOL_CONVERSIONS, getGPAConversion } from './school_conversions_database';
 import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs';
 import { processCameraPhotoWithOllama, checkOllamaStatus } from './ollama_integration';
 
-// Set up PDF.js worker using CDN - works everywhere (dev, production, Electron)
-// CDN always available, no bundling issues
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+// Electron loads the app from a file:// origin, where window.location.origin is
+// the literal string "null". pdfjs-dist's same-origin check for its worker always
+// fails there, routing it through a cross-origin Blob-wrapper path that hangs
+// indefinitely with no fallback in this environment. Registering the worker module
+// on window.pdfjsWorker makes pdfjs-dist skip the separate Worker thread and run
+// parsing on the main thread instead - the officially supported bundler pattern.
+window.pdfjsWorker = pdfjsWorker;
 
 /**
  * BYUH TRANSCRIPT SCREENER - BEAUTIFUL DASHBOARD
