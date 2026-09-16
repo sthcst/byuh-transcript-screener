@@ -28,13 +28,17 @@ function createWindow() {
 }
 
 app.on('ready', async () => {
-  // Setup Ollama in background (non-blocking)
-  setupOllama().catch(err => {
-    console.warn('Ollama setup warning:', err);
-    // App still works without Ollama
-  });
-
   createWindow();
+
+  // Setup Ollama in background (non-blocking), reporting progress to the
+  // renderer since downloading Ollama + the vision model can take a while.
+  const onProgress = (data) => {
+    mainWindow?.webContents.send('ollama-setup-progress', data);
+  };
+  setupOllama(onProgress).catch(err => {
+    console.warn('Ollama setup warning:', err);
+    onProgress({ stage: 'error', message: `⚠️ AI setup failed: ${err.message}. PDF grades can still be entered manually.` });
+  });
 });
 
 app.on('window-all-closed', () => {

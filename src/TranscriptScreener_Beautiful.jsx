@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { SCHOOL_CONVERSIONS, getGPAConversion } from './school_conversions_database';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs';
-import { processCameraPhotoWithOllama, checkOllamaStatus } from './ollama_integration';
+import { processTranscriptImageWithOllama, checkOllamaStatus } from './ollama_integration';
 
 // Electron loads the app from a file:// origin, where window.location.origin is
 // the literal string "null". pdfjs-dist's same-origin check for its worker always
@@ -113,6 +113,7 @@ const TranscriptScreener = ({ onBack }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [ollamaAvailable, setOllamaAvailable] = useState(null);
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
+  const [ollamaSetupStatus, setOllamaSetupStatus] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('byuh_entries');
@@ -122,6 +123,16 @@ const TranscriptScreener = ({ onBack }) => {
     checkOllamaStatus().then(isAvailable => {
       setOllamaAvailable(isAvailable);
     });
+
+    // Listen for first-run Ollama/model setup progress from the main process
+    // (downloading/installing Ollama, pulling the vision model can take a while).
+    const unsubscribe = window.electron?.onOllamaProgress?.((data) => {
+      setOllamaSetupStatus(data);
+      if (data.stage === 'ready') {
+        setOllamaAvailable(true);
+      }
+    });
+    return () => unsubscribe?.();
   }, []);
 
   const convertGradeToGPA = (grade, schoolId) => {
@@ -130,25 +141,43 @@ const TranscriptScreener = ({ onBack }) => {
     return conversion ? conversion.gpa : null;
   };
 
+  // Renders a PDF page to a JPEG data URL for the AI vision model. Every page
+  // goes through this same path - whether it's a typed PDF or a scanned photo,
+  // the model reads pixels the same way, which is what lets one pipeline
+  // handle both instead of maintaining separate typed-text and OCR code paths.
+  const renderPageToImageBase64 = async (page) => {
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const context = canvas.getContext('2d');
+    await page.render({ canvasContext: context, viewport }).promise;
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    return dataUrl.split(',')[1] || null;
+  };
+
   const handlePDFUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
+
+    if (!ollamaAvailable) {
+      setPdfStatus({
+        type: 'error',
+        message: '⚠️ The AI reader (Ollama) is not available. Please enter grades manually below.',
+      });
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const arrayBuffer = e.target.result;
-        
-        // Load PDF document
+
         let pdf;
         try {
-          // Log worker status for debugging
-          console.log('PDF Worker path:', pdfjsLib.GlobalWorkerOptions.workerSrc);
-          console.log('Loading PDF, file size:', file.size);
           pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         } catch (pdfError) {
           console.error('PDF load error:', pdfError);
-          console.error('Error details:', pdfError.message);
           setPdfStatus({
             type: 'error',
             message: `❌ Failed to read PDF: ${pdfError.message}. Try a different PDF or enter grades manually.`,
@@ -156,186 +185,81 @@ const TranscriptScreener = ({ onBack }) => {
           return;
         }
 
-        // Get first page to check for text
-        let page;
-        try {
-          page = await pdf.getPage(1);
-        } catch (pageError) {
-          console.error('Page load error:', pageError);
+        setIsProcessing(true);
+
+        const allSubjects = [];
+        let detectedSchool = null;
+        let studentName = null;
+        let pagesFailed = 0;
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          setPdfStatus({
+            type: 'processing',
+            message: `🤖 Reading page ${i} of ${pdf.numPages} with AI... this can take up to a minute per page.`,
+          });
+
+          try {
+            const page = await pdf.getPage(i);
+            const imageBase64 = await renderPageToImageBase64(page);
+            if (!imageBase64) {
+              pagesFailed++;
+              continue;
+            }
+
+            const result = await processTranscriptImageWithOllama(imageBase64, SCHOOL_DATABASE.schools);
+            if (result.success) {
+              allSubjects.push(...result.subjects);
+              if (!detectedSchool && result.detectedSchool) detectedSchool = result.detectedSchool;
+              if (!studentName && result.studentName) studentName = result.studentName;
+            } else {
+              console.warn(`Page ${i} extraction failed:`, result.error);
+              pagesFailed++;
+            }
+          } catch (pageError) {
+            console.error(`Error processing page ${i}:`, pageError);
+            pagesFailed++;
+          }
+        }
+
+        setIsProcessing(false);
+
+        if (allSubjects.length === 0) {
           setPdfStatus({
             type: 'error',
-            message: '❌ Failed to read PDF page. Please try a different PDF file.',
+            message: '❌ The AI could not read any subjects/grades from this PDF. Please enter grades manually.',
           });
           return;
         }
 
-        let textContent;
-        try {
-          textContent = await page.getTextContent();
-        } catch (textError) {
-          console.error('Text extraction error:', textError);
-          textContent = { items: [] };
+        if (detectedSchool) {
+          setSelectedSchool(detectedSchool);
+          setFormData(prev => ({ ...prev, schoolName: detectedSchool.name }));
         }
 
-        // Check if PDF has actual text (not just images)
-        const hasTextLayer = textContent.items && 
-                            textContent.items.length > 0 && 
-                            textContent.items.some(item => item.str && item.str.trim().length > 0);
+        const newSubjects = allSubjects.map(s => ({
+          name: s.name || 'Subject',
+          grade: (s.grade ?? '').toString(),
+        }));
+        setFormData(prev => ({
+          ...prev,
+          subjects: { ...prev.subjects, 'G11S1': newSubjects },
+        }));
 
-        if (!hasTextLayer) {
-          // Camera photo / scanned image - use Ollama if available
-          if (ollamaAvailable) {
-            setPdfStatus({
-              type: 'processing',
-              message: '🤖 Processing with AI... This may take 20-30 seconds. Please wait...',
-            });
-            setIsProcessing(true);
-
-            try {
-              // Render page to image using proper canvas method
-              const viewport = page.getViewport({ scale: 2 });
-              const canvas = document.createElement('canvas');
-              canvas.width = viewport.width;
-              canvas.height = viewport.height;
-              const context = canvas.getContext('2d');
-
-              const renderContext = {
-                canvasContext: context,
-                viewport: viewport,
-              };
-
-              await page.render(renderContext).promise;
-
-              // Convert canvas to base64 JPEG
-              const imageBase64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-
-              if (!imageBase64) {
-                throw new Error('Failed to convert canvas to image');
-              }
-
-              // Process with Ollama
-              const result = await processCameraPhotoWithOllama(imageBase64, SCHOOL_DATABASE.schools);
-
-              if (result.success) {
-                setPdfStatus({
-                  type: 'digital',
-                  message: `✅ AI extracted grades! Found ${result.grades.length} grades.`,
-                });
-
-                if (result.detectedSchool) {
-                  setSelectedSchool(result.detectedSchool);
-                  setFormData(prev => ({ ...prev, schoolName: result.detectedSchool.name }));
-                  setPdfStatus(prev => ({ ...prev, message: `✅ School detected: ${result.detectedSchool.name} | ${result.grades.length} grades found` }));
-                }
-
-                if (result.grades.length > 0) {
-                  const newSubjects = result.grades.slice(0, 10).map((g, idx) => ({ 
-                    name: `Subject ${idx + 1}`, 
-                    grade: g.toString() 
-                  }));
-                  setFormData(prev => ({
-                    ...prev,
-                    subjects: { ...prev.subjects, 'G11S1': newSubjects }
-                  }));
-                }
-              } else {
-                setPdfStatus({
-                  type: 'camera',
-                  message: `⚠️ AI could not extract grades. Please enter manually.`,
-                });
-              }
-            } catch (ollamaError) {
-              console.error('Ollama processing error:', ollamaError);
-              setPdfStatus({
-                type: 'camera',
-                message: '⚠️ AI processing failed. Please enter grades manually below.',
-              });
-            } finally {
-              setIsProcessing(false);
-            }
-          } else {
-            // Ollama not available
-            setPdfStatus({
-              type: 'camera',
-              message: '📸 Camera photo detected. Please enter grades manually below.',
-            });
-          }
-        } else {
-          // Digital PDF with text layer
-          setPdfStatus({
-            type: 'digital',
-            message: '✅ Digital PDF detected! Extracting data...',
-          });
-
-          // Extract all text from all pages
-          let fullText = '';
-          try {
-            for (let i = 1; i <= pdf.numPages; i++) {
-              const pageData = await pdf.getPage(i);
-              const content = await pageData.getTextContent();
-              fullText += content.items.map(item => item.str).join(' ') + ' ';
-            }
-          } catch (extractError) {
-            console.error('Error extracting text from pages:', extractError);
-            setPdfStatus({
-              type: 'error',
-              message: '❌ Error reading PDF text. Please try manual entry.',
-            });
-            setIsProcessing(false);
-            return;
-          }
-
-          // Try to find school name
-          const detectedSchool = detectSchoolFromText(fullText);
-          if (detectedSchool) {
-            setSelectedSchool(detectedSchool);
-            setFormData(prev => ({ ...prev, schoolName: detectedSchool.name }));
-            setPdfStatus(prev => ({ ...prev, message: `✅ School detected: ${detectedSchool.name}` }));
-          }
-
-          // Extract numbers that look like grades
-          const grades = extractGradesFromText(fullText);
-          if (grades.length > 0) {
-            // Auto-populate first semester
-            const newSubjects = grades.slice(0, 5).map(g => ({ name: `Subject`, grade: g.toString() }));
-            setFormData(prev => ({
-              ...prev,
-              subjects: { ...prev.subjects, 'G11S1': newSubjects }
-            }));
-          }
-        }
+        const warning = pagesFailed > 0 ? ` (${pagesFailed} page${pagesFailed === 1 ? '' : 's'} could not be read)` : '';
+        setPdfStatus({
+          type: 'success',
+          message: `✅ AI read ${newSubjects.length} subject${newSubjects.length === 1 ? '' : 's'}${studentName ? ` for ${studentName}` : ''}${warning}. Please double-check every grade below before calculating - AI extraction is not perfect.`,
+        });
       } catch (error) {
         console.error('PDF processing error:', error);
+        setIsProcessing(false);
         setPdfStatus({
           type: 'error',
           message: `❌ Error reading PDF: ${error.message}. Please try again or enter grades manually.`,
         });
-        setIsProcessing(false);
       }
     };
     reader.readAsArrayBuffer(file);
-  };
-
-  const detectSchoolFromText = (text) => {
-    const textLower = text.toLowerCase();
-    for (const school of SCHOOL_DATABASE.schools) {
-      if (textLower.includes(school.name.toLowerCase()) || textLower.includes(school.abbr.toLowerCase())) {
-        return school;
-      }
-    }
-    return null;
-  };
-
-  const extractGradesFromText = (text) => {
-    const grades = [];
-    // Match numbers that look like grades (0-100)
-    const regex = /\b([6-9]\d|100|[1-5]\.?\d*)\b/g;
-    const matches = text.match(regex);
-    if (matches) {
-      const uniqueGrades = [...new Set(matches.map(Number))].filter(n => n > 0 && n <= 100);
-      return uniqueGrades.slice(0, 10); // Return first 10 unique grades
-    }
-    return grades;
   };
 
   const calculateResults = () => {
@@ -489,7 +413,19 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
         </div>
       </header>
 
-      <div 
+      {ollamaSetupStatus && ollamaSetupStatus.stage !== 'ready' && (
+        <div style={{
+          padding: '10px 20px',
+          backgroundColor: ollamaSetupStatus.stage === 'error' ? '#f8d7da' : '#fff3cd',
+          color: ollamaSetupStatus.stage === 'error' ? '#721c24' : '#856404',
+          textAlign: 'center',
+          fontSize: '14px',
+        }}>
+          {ollamaSetupStatus.message}
+        </div>
+      )}
+
+      <div
         style={{...styles.mainContent, position: 'relative'}}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -595,10 +531,10 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
                 {pdfStatus && (
                   <div style={{
                     ...styles.pdfStatus,
-                    backgroundColor: pdfStatus.type === 'digital' ? '#d4edda' : 
-                                     pdfStatus.type === 'camera' ? '#fff3cd' : '#f8d7da',
-                    color: pdfStatus.type === 'digital' ? '#155724' :
-                           pdfStatus.type === 'camera' ? '#856404' : '#721c24',
+                    backgroundColor: pdfStatus.type === 'success' ? '#d4edda' :
+                                     pdfStatus.type === 'processing' ? '#fff3cd' : '#f8d7da',
+                    color: pdfStatus.type === 'success' ? '#155724' :
+                           pdfStatus.type === 'processing' ? '#856404' : '#721c24',
                   }}>
                     {pdfStatus.message}
                   </div>

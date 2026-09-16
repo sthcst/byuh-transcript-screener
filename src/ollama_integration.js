@@ -1,11 +1,11 @@
 /**
- * OLLAMA OCR MODULE
- * Handles vision-based grade extraction from camera photos
- * Uses Llama 2 vision model running locally via Ollama
+ * OLLAMA VISION MODULE
+ * Extracts subjects and grades directly from a transcript image (a rendered
+ * PDF page or a camera photo) using a local vision-language model via Ollama.
  */
 
 const OLLAMA_API_URL = 'http://localhost:11434/api/generate';
-const MODEL_NAME = 'llama2';
+const MODEL_NAME = 'qwen2.5vl:7b';
 
 /**
  * Check if Ollama is running locally
@@ -22,108 +22,68 @@ export const checkOllamaStatus = async () => {
   }
 };
 
-/**
- * Extract text from PDF image using Ollama
- * @param {string} imageBase64 - Base64 encoded image
- * @returns {Promise<string>} Extracted text
- */
-export const extractTextFromImage = async (imageBase64) => {
-  try {
-    const prompt = `You are a document recognition expert. Please extract ALL text from this transcript/grade sheet image. Focus on:
-1. School name
-2. Student name (if visible)
-3. Subject names
-4. All numerical grades and marks
-5. Any grade scale information
+const EXTRACTION_PROMPT = `You are reading a school transcript image. Extract ONLY the subject names and their final numeric grades into strict JSON, with no other text, no markdown code fences, no explanation.
 
-Return ONLY the extracted text, nothing else. Be thorough and extract every number and text you can see.`;
+Output exactly this shape:
+{"school_name": "<school name or null>", "student_name": "<student name or null>", "subjects": [{"name": "<subject name>", "grade": "<grade as it appears>"}]}
 
-    const response = await fetch(OLLAMA_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL_NAME,
-        prompt: prompt,
-        images: [imageBase64],
-        stream: false,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Ollama API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.response || '';
-  } catch (error) {
-    console.error('Error extracting text with Ollama:', error);
-    throw error;
-  }
-};
+Rules:
+- Only include rows that clearly pair a subject name with a grade.
+- Do not invent subjects or grades that are not visible in the image.
+- Do not include totals, averages, or GPA as a subject.
+- Output must be valid JSON and nothing else.`;
 
 /**
- * Extract grades from OCR text
- * @param {string} text - Extracted text from image
- * @returns {number[]} Array of grades found
+ * Extract structured subject/grade data from a transcript image.
+ * @param {string} imageBase64 - Base64 encoded image (no data: prefix)
  */
-export const extractGradesFromOCR = (text) => {
-  const grades = [];
-  
-  // Match various grade patterns:
-  // 0-100 scale: 75, 85, 92, 100
-  // 1.0-5.0 scale: 1.5, 2.0, 3.25, 4.75
-  // Letter grades: A, B+, C-, etc.
-  
-  const patterns = [
-    /\b([6-9]\d|100)(?:\s|,|$)/g,        // 60-100
-    /\b([1-5]\.\d{1,2})\b/g,            // 1.00-5.99
-    /\b([1-5])(?:\s|,|$)/g,             // Single digits 1-5
-  ];
-
-  patterns.forEach(pattern => {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const grade = parseFloat(match[1]);
-      if (grade > 0 && grade <= 100) {
-        // Only keep valid grades
-        if (!grades.includes(grade)) {
-          grades.push(grade);
-        }
-      }
-    }
+export const extractTranscriptData = async (imageBase64) => {
+  const response = await fetch(OLLAMA_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MODEL_NAME,
+      prompt: EXTRACTION_PROMPT,
+      images: [imageBase64],
+      stream: false,
+      format: 'json',
+    }),
   });
 
-  return [...new Set(grades)].sort((a, b) => b - a).slice(0, 15);
-};
-
-/**
- * Detect school name from OCR text
- * @param {string} text - Extracted text
- * @param {Array} schools - School database
- * @returns {Object|null} Detected school or null
- */
-export const detectSchoolFromOCR = (text, schools) => {
-  const textLower = text.toLowerCase();
-  
-  for (const school of schools) {
-    if (textLower.includes(school.name.toLowerCase()) || 
-        textLower.includes(school.abbr.toLowerCase())) {
-      return school;
-    }
+  if (!response.ok) {
+    throw new Error(`Ollama API error: ${response.status}`);
   }
-  
-  return null;
+
+  const data = await response.json();
+  const parsed = JSON.parse(data.response);
+  return {
+    school_name: parsed.school_name ?? null,
+    student_name: parsed.student_name ?? null,
+    subjects: Array.isArray(parsed.subjects) ? parsed.subjects : [],
+  };
 };
 
 /**
- * Process camera photo with Ollama
- * Full pipeline: image → OCR → extract grades/school
+ * Match an extracted school name against the known school database.
  */
-export const processCameraPhotoWithOllama = async (imageBase64, schools) => {
+export const matchSchool = (schoolName, schools) => {
+  if (!schoolName) return null;
+  const nameLower = schoolName.toLowerCase();
+  return (
+    schools.find(
+      (school) => nameLower.includes(school.name.toLowerCase()) || nameLower.includes(school.abbr.toLowerCase())
+    ) || null
+  );
+};
+
+/**
+ * Process a transcript image (a rendered PDF page or a camera photo).
+ * Full pipeline: image -> structured subjects/grades -> school match.
+ */
+export const processTranscriptImageWithOllama = async (imageBase64, schools) => {
   try {
-    // Check if Ollama is running
     const isRunning = await checkOllamaStatus();
     if (!isRunning) {
       return {
@@ -133,33 +93,27 @@ export const processCameraPhotoWithOllama = async (imageBase64, schools) => {
       };
     }
 
-    // Extract text from image
-    console.log('Extracting text from image...');
-    const extractedText = await extractTextFromImage(imageBase64);
+    const result = await extractTranscriptData(imageBase64);
 
-    if (!extractedText || extractedText.trim().length === 0) {
+    if (result.subjects.length === 0) {
       return {
         success: false,
-        error: 'No text could be extracted from the image. Please check image quality.',
-        stage: 'text_extraction',
+        error: 'No subjects/grades could be read from this page.',
+        stage: 'extraction',
       };
     }
 
-    // Extract grades
-    const grades = extractGradesFromOCR(extractedText);
-
-    // Detect school
-    const detectedSchool = detectSchoolFromOCR(extractedText, schools);
+    const detectedSchool = matchSchool(result.school_name, schools);
 
     return {
       success: true,
-      extractedText,
-      grades,
+      subjects: result.subjects,
+      studentName: result.student_name,
       detectedSchool,
       stage: 'complete',
     };
   } catch (error) {
-    console.error('Error processing camera photo:', error);
+    console.error('Error processing transcript image:', error);
     return {
       success: false,
       error: error.message,
@@ -170,8 +124,7 @@ export const processCameraPhotoWithOllama = async (imageBase64, schools) => {
 
 export default {
   checkOllamaStatus,
-  extractTextFromImage,
-  extractGradesFromOCR,
-  detectSchoolFromOCR,
-  processCameraPhotoWithOllama,
+  extractTranscriptData,
+  matchSchool,
+  processTranscriptImageWithOllama,
 };

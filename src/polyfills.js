@@ -47,6 +47,24 @@ if (typeof Uint8Array.prototype.toHex !== 'function') {
   };
 }
 
+// pdfjs-dist's page rendering path (getOptionalContentConfig) uses the Map/
+// WeakMap "upsert" methods from the Map.prototype.getOrInsert proposal,
+// landed only very recently and well past Chromium 118.
+for (const Ctor of [Map, WeakMap]) {
+  if (typeof Ctor.prototype.getOrInsert !== 'function') {
+    Ctor.prototype.getOrInsert = function getOrInsert(key, value) {
+      if (!this.has(key)) this.set(key, value);
+      return this.get(key);
+    };
+  }
+  if (typeof Ctor.prototype.getOrInsertComputed !== 'function') {
+    Ctor.prototype.getOrInsertComputed = function getOrInsertComputed(key, callbackFn) {
+      if (!this.has(key)) this.set(key, callbackFn(key));
+      return this.get(key);
+    };
+  }
+}
+
 // pdfjs-dist iterates ReadableStreams with `for await...of`, which needs
 // ReadableStream's Symbol.asyncIterator (landed in Chrome 124).
 if (typeof ReadableStream.prototype[Symbol.asyncIterator] !== 'function') {
