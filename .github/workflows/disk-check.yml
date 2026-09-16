@@ -1,0 +1,8 @@
+name: Disk Check
+on: workflow_dispatch
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - run: Get-PSDrive C | Select-Object Used,Free
+        shell: pwsh
