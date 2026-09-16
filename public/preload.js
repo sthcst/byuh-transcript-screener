@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('ollama-setup-progress', listener);
     return () => ipcRenderer.removeListener('ollama-setup-progress', listener);
   },
+  retryOllamaSetup: () => ipcRenderer.invoke('retry-ollama-setup'),
 });

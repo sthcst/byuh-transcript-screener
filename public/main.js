@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { setupOllama, stopOllama } = require('./ollama_service');
 
@@ -27,18 +27,28 @@ function createWindow() {
   });
 }
 
+const onOllamaProgress = (data) => {
+  mainWindow?.webContents.send('ollama-setup-progress', data);
+};
+
+const runOllamaSetup = () => {
+  setupOllama(onOllamaProgress).catch(err => {
+    console.warn('Ollama setup warning:', err);
+    onOllamaProgress({ stage: 'error', message: `⚠️ AI setup failed: ${err.message}. PDF grades can still be entered manually.` });
+  });
+};
+
 app.on('ready', async () => {
   createWindow();
 
   // Setup Ollama in background (non-blocking), reporting progress to the
   // renderer since downloading Ollama + the vision model can take a while.
-  const onProgress = (data) => {
-    mainWindow?.webContents.send('ollama-setup-progress', data);
-  };
-  setupOllama(onProgress).catch(err => {
-    console.warn('Ollama setup warning:', err);
-    onProgress({ stage: 'error', message: `⚠️ AI setup failed: ${err.message}. PDF grades can still be entered manually.` });
-  });
+  runOllamaSetup();
+});
+
+ipcMain.handle('retry-ollama-setup', () => {
+  onOllamaProgress({ stage: 'starting-ollama', message: '🔄 Retrying AI setup...' });
+  runOllamaSetup();
 });
 
 app.on('window-all-closed', () => {

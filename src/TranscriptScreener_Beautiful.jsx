@@ -119,9 +119,13 @@ const TranscriptScreener = ({ onBack }) => {
     const saved = localStorage.getItem('byuh_entries');
     if (saved) setSavedEntries(JSON.parse(saved));
     
-    // Check if Ollama is available
+    // Check if Ollama is already available (e.g. left running from a prior
+    // session). If not, that just means setup hasn't finished yet - it does
+    // NOT mean setup failed, so this must never set ollamaAvailable to false
+    // itself. Whether setup succeeds or fails is reported definitively via
+    // the progress events below.
     checkOllamaStatus().then(isAvailable => {
-      setOllamaAvailable(isAvailable);
+      if (isAvailable) setOllamaAvailable(true);
     });
 
     // Listen for first-run Ollama/model setup progress from the main process
@@ -130,6 +134,8 @@ const TranscriptScreener = ({ onBack }) => {
       setOllamaSetupStatus(data);
       if (data.stage === 'ready') {
         setOllamaAvailable(true);
+      } else if (data.stage === 'error') {
+        setOllamaAvailable(false);
       }
     });
     return () => unsubscribe?.();
@@ -163,7 +169,9 @@ const TranscriptScreener = ({ onBack }) => {
     if (!ollamaAvailable) {
       setPdfStatus({
         type: 'error',
-        message: '⚠️ The AI reader (Ollama) is not available. Please enter grades manually below.',
+        message: ollamaAvailable === null
+          ? '⏳ The AI reader is still starting up - please wait a moment and try again, or enter grades manually below.'
+          : '❌ The AI reader is not available (see the status above). Please enter grades manually below.',
       });
       return;
     }
@@ -518,6 +526,40 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
 
               {/* PDF Upload Section */}
               <div style={styles.pdfUploadSection}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  marginBottom: '8px',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  color: ollamaAvailable === true ? '#155724' : ollamaAvailable === false ? '#721c24' : '#856404',
+                }}>
+                  <span>
+                    {ollamaAvailable === true && '✅ AI Reader: Ready'}
+                    {ollamaAvailable === false && '❌ AI Reader: Not available'}
+                    {ollamaAvailable === null && '⏳ AI Reader: Checking...'}
+                  </span>
+                  {ollamaAvailable === false && (
+                    <button
+                      onClick={() => {
+                        setOllamaSetupStatus({ stage: 'starting-ollama', message: '🔄 Retrying AI setup...' });
+                        window.electron?.retryOllamaSetup?.();
+                      }}
+                      style={{
+                        fontSize: '12px',
+                        padding: '3px 10px',
+                        border: '1px solid #721c24',
+                        borderRadius: '4px',
+                        background: 'white',
+                        color: '#721c24',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      🔄 Retry
+                    </button>
+                  )}
+                </div>
                 <label style={styles.pdfLabel}>
                   📄 Upload Transcript PDF (Or drag and drop anywhere)
                 </label>
