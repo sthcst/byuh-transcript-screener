@@ -1,0 +1,10 @@
+name: Tool Check
+on: workflow_dispatch
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - run: |
+          Test-Path "C:\Program Files\7-Zip\7z.exe"
+          Get-Command 7z -ErrorAction SilentlyContinue
+        shell: pwsh
