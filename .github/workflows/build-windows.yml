@@ -45,6 +45,10 @@ jobs:
         env:
           CI: false
 
+      - name: Run automated smoke test (real upload + AI extraction on real Windows)
+        shell: pwsh
+        run: node test/windows-e2e-smoke-test.js "dist/win-unpacked/BYUH Transcript Screener.exe"
+
       - name: Zip the built app (NSIS can't handle a payload this large)
         shell: pwsh
         run: |
