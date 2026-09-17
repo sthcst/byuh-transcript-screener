@@ -22,9 +22,14 @@ const noop = () => {};
 /**
  * Check if Ollama is running
  */
+// Explicitly 127.0.0.1, not "localhost" - Node's fetch can resolve
+// "localhost" to the IPv6 loopback (::1) on Windows, while Ollama binds
+// IPv4-only, which made this check silently and permanently fail even
+// though the server (and the renderer, whose fetch resolves IPv4 first)
+// was working fine.
 const checkOllamaStatus = async () => {
   try {
-    const response = await fetch('http://localhost:11434/api/tags', {
+    const response = await fetch('http://127.0.0.1:11434/api/tags', {
       method: 'GET',
       timeout: 2000,
     });
@@ -72,6 +77,7 @@ const startOllama = async (onProgress = noop) => {
     env: {
       ...process.env,
       OLLAMA_MODELS: MODEL_DIR,
+      OLLAMA_HOST: '127.0.0.1:11434',
     },
   });
   ollamaProcess.unref();

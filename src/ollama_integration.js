@@ -4,7 +4,10 @@
  * PDF page or a camera photo) using a local vision-language model via Ollama.
  */
 
-const OLLAMA_API_URL = 'http://localhost:11434/api/generate';
+// Explicitly 127.0.0.1, not "localhost" - Ollama binds IPv4-only, and
+// resolving "localhost" can go to the IPv6 loopback depending on the
+// platform's DNS resolution order.
+const OLLAMA_API_URL = 'http://127.0.0.1:11434/api/generate';
 const MODEL_NAME = 'qwen2.5vl:7b';
 
 /**
@@ -12,7 +15,7 @@ const MODEL_NAME = 'qwen2.5vl:7b';
  */
 export const checkOllamaStatus = async () => {
   try {
-    const response = await fetch('http://localhost:11434/api/tags', {
+    const response = await fetch('http://127.0.0.1:11434/api/tags', {
       method: 'GET',
     });
     return response.ok;
