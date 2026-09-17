@@ -76,7 +76,15 @@ const startOllama = async (onProgress = noop) => {
   });
   ollamaProcess.unref();
 
-  await waitForOllama(30000);
+  // A first-ever launch of a freshly-installed binary can be held up well
+  // past a few seconds (e.g. Windows Defender real-time scanning), even
+  // though the process itself never errors - it just doesn't bind the port
+  // yet. Give it a generous window rather than failing a slow-but-healthy
+  // start.
+  const spawnError = new Promise((_, reject) => {
+    ollamaProcess.on('error', (err) => reject(new Error(`Failed to launch Ollama: ${err.message}`)));
+  });
+  await Promise.race([waitForOllama(120000), spawnError]);
   return true;
 };
 

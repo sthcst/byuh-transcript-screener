@@ -104,26 +104,11 @@ async function main() {
     await client.ready;
     await client.send('Runtime.enable');
 
-    // Wait for the AI reader to report ready (bundled Ollama + model starting
-    // up), not just for the window to exist.
-    console.log('Waiting for AI Reader to report ready...');
-    const aiReadyDeadline = Date.now() + 120000;
-    let aiStatus = null;
-    while (Date.now() < aiReadyDeadline) {
-      aiStatus = await client.evaluate(`(() => {
-        const els = Array.from(document.querySelectorAll('span'));
-        const el = els.find(e => e.textContent && e.textContent.includes('AI Reader'));
-        return el ? el.textContent : null;
-      })()`);
-      if (aiStatus && aiStatus.includes('Ready')) break;
-      await sleep(2000);
-    }
-    if (!aiStatus || !aiStatus.includes('Ready')) {
-      throw new Error(`AI Reader never became ready. Last status: ${aiStatus}`);
-    }
-    console.log('AI Reader status:', aiStatus);
-
-    // Select a school and grade scale to reveal the upload section.
+    // The AI Reader status indicator only renders inside the "Enter Grades"
+    // panel, which itself only appears once a school and grade scale are
+    // selected - so select those first to reveal it, then poll it for
+    // readiness (bundled Ollama + model starting up), not just wait for the
+    // window to exist.
     await client.evaluate(`(() => {
       const select = document.querySelector('select');
       const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
@@ -138,6 +123,23 @@ async function main() {
       scaleBtn.click();
     })()`);
     await sleep(500);
+
+    console.log('Waiting for AI Reader to report ready...');
+    const aiReadyDeadline = Date.now() + 150000;
+    let aiStatus = null;
+    while (Date.now() < aiReadyDeadline) {
+      aiStatus = await client.evaluate(`(() => {
+        const els = Array.from(document.querySelectorAll('span'));
+        const el = els.find(e => e.textContent && e.textContent.includes('AI Reader'));
+        return el ? el.textContent : null;
+      })()`);
+      if (aiStatus && aiStatus.includes('Ready')) break;
+      await sleep(2000);
+    }
+    if (!aiStatus || !aiStatus.includes('Ready')) {
+      throw new Error(`AI Reader never became ready. Last status: ${aiStatus}`);
+    }
+    console.log('AI Reader status:', aiStatus);
 
     // Drive the real file input via CDP (the same mechanism used by
     // browser-automation tools) to trigger the actual upload handler.
