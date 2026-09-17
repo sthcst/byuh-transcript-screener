@@ -154,8 +154,10 @@ async function main() {
     // Poll for the final success/error status message. Cold-loading a 7B
     // vision model and running inference on CPU only (no GPU on the CI
     // runner, or on the office laptops this targets) can genuinely take
-    // several minutes on the first request, so this needs real patience.
-    const extractionDeadline = Date.now() + 420000;
+    // a long time on the first request - a prior run was still actively
+    // running inference (confirmed via GitHub's orphan-process cleanup log)
+    // past the 7-minute mark, so give this real room rather than guessing.
+    const extractionDeadline = Date.now() + 900000;
     let statusText = null;
     let lastLoggedProgress = null;
     while (Date.now() < extractionDeadline) {
