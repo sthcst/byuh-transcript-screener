@@ -48,7 +48,9 @@ jobs:
       - name: Zip the built app (NSIS can't handle a payload this large)
         shell: pwsh
         run: |
-          7z a -tzip -mx=0 "dist/BYUH-Transcript-Screener-1.0.0-win64.zip" "dist/win-unpacked/*"
+          Push-Location "dist/win-unpacked"
+          7z a -tzip -mx=0 "../BYUH-Transcript-Screener-1.0.0-win64.zip" "*"
+          Pop-Location
 
       - uses: actions/upload-artifact@v4
         with:
