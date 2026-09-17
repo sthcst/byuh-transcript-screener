@@ -129,8 +129,7 @@ async function main() {
     let aiStatus = null;
     while (Date.now() < aiReadyDeadline) {
       aiStatus = await client.evaluate(`(() => {
-        const els = Array.from(document.querySelectorAll('span'));
-        const el = els.find(e => e.textContent && e.textContent.includes('AI Reader'));
+        const el = document.querySelector('[data-testid="ai-reader-status"]');
         return el ? el.textContent : null;
       })()`);
       if (aiStatus && aiStatus.includes('Ready')) break;
@@ -157,9 +156,8 @@ async function main() {
     let statusText = null;
     while (Date.now() < extractionDeadline) {
       statusText = await client.evaluate(`(() => {
-        const els = Array.from(document.querySelectorAll('div'));
-        const el = els.find(e => e.textContent && (e.textContent.includes('✅') || e.textContent.includes('❌')) && e.textContent.includes('AI'));
-        return el ? el.textContent : null;
+        const el = document.querySelector('[data-testid="pdf-status"]');
+        return el && (el.textContent.includes('✅') || el.textContent.includes('❌')) ? el.textContent : null;
       })()`);
       if (statusText) break;
       await sleep(3000);

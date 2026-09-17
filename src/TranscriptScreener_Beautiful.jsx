@@ -535,7 +535,7 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
                   fontWeight: 'bold',
                   color: ollamaAvailable === true ? '#155724' : ollamaAvailable === false ? '#721c24' : '#856404',
                 }}>
-                  <span>
+                  <span data-testid="ai-reader-status">
                     {ollamaAvailable === true && '✅ AI Reader: Ready'}
                     {ollamaAvailable === false && '❌ AI Reader: Not available'}
                     {ollamaAvailable === null && '⏳ AI Reader: Checking...'}
@@ -571,7 +571,7 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
                 />
                 <small style={styles.dragHint}>💡 Tip: You can drag a PDF file onto any part of the screen</small>
                 {pdfStatus && (
-                  <div style={{
+                  <div data-testid="pdf-status" style={{
                     ...styles.pdfStatus,
                     backgroundColor: pdfStatus.type === 'success' ? '#d4edda' :
                                      pdfStatus.type === 'processing' ? '#fff3cd' : '#f8d7da',
