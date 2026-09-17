@@ -151,15 +151,26 @@ async function main() {
     await client.send('DOM.setFileInputFiles', { files: [FIXTURE_PDF], nodeId: qs.result.nodeId });
     console.log('Fixture PDF submitted, waiting for AI extraction...');
 
-    // Poll for the final success/error status message.
-    const extractionDeadline = Date.now() + 180000;
+    // Poll for the final success/error status message. Cold-loading a 7B
+    // vision model and running inference on CPU only (no GPU on the CI
+    // runner, or on the office laptops this targets) can genuinely take
+    // several minutes on the first request, so this needs real patience.
+    const extractionDeadline = Date.now() + 420000;
     let statusText = null;
+    let lastLoggedProgress = null;
     while (Date.now() < extractionDeadline) {
-      statusText = await client.evaluate(`(() => {
+      const progress = await client.evaluate(`(() => {
         const el = document.querySelector('[data-testid="pdf-status"]');
-        return el && (el.textContent.includes('✅') || el.textContent.includes('❌')) ? el.textContent : null;
+        return el ? el.textContent : null;
       })()`);
-      if (statusText) break;
+      if (progress && progress !== lastLoggedProgress) {
+        console.log('  [pdf-status]', progress);
+        lastLoggedProgress = progress;
+      }
+      if (progress && (progress.includes('✅') || progress.includes('❌'))) {
+        statusText = progress;
+        break;
+      }
       await sleep(3000);
     }
     console.log('Extraction status:', statusText);

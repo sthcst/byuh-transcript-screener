@@ -39,7 +39,16 @@ jobs:
           Start-Sleep -Seconds 5
           & "resources\ollama-bin\ollama.exe" pull qwen2.5vl:7b
           if ($LASTEXITCODE -ne 0) { throw "Model pull failed with exit code $LASTEXITCODE" }
-          Get-Process ollama -ErrorAction SilentlyContinue | Stop-Process -Force
+          # Stop-Process alone doesn't guarantee the port is released before
+          # the next step runs - the packaged app's own bundled Ollama needs
+          # port 11434 free, or it silently fails to bind and the app falls
+          # back to whatever stray process answers instead.
+          taskkill /IM ollama.exe /F /T 2>$null
+          for ($i = 0; $i -lt 20; $i++) {
+            $stillListening = Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue
+            if (-not $stillListening) { break }
+            Start-Sleep -Seconds 1
+          }
 
       - run: npm run build-win64
         env:
