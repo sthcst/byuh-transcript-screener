@@ -203,7 +203,7 @@ const TranscriptScreener = ({ onBack }) => {
         for (let i = 1; i <= pdf.numPages; i++) {
           setPdfStatus({
             type: 'processing',
-            message: `🤖 Reading page ${i} of ${pdf.numPages} with AI... this can take up to a minute per page.`,
+            message: `🤖 Reading page ${i} of ${pdf.numPages} with AI... this can take several minutes per page, please be patient.`,
           });
 
           try {
@@ -428,7 +428,12 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
           color: ollamaSetupStatus.stage === 'error' ? '#721c24' : '#856404',
           textAlign: 'center',
           fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
         }}>
+          {ollamaSetupStatus.stage !== 'error' && <span className="spinner" />}
           {ollamaSetupStatus.message}
         </div>
       )}
@@ -535,10 +540,10 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
                   fontWeight: 'bold',
                   color: ollamaAvailable === true ? '#155724' : ollamaAvailable === false ? '#721c24' : '#856404',
                 }}>
-                  <span data-testid="ai-reader-status">
+                  <span data-testid="ai-reader-status" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {ollamaAvailable === true && '✅ AI Reader: Ready'}
                     {ollamaAvailable === false && '❌ AI Reader: Not available'}
-                    {ollamaAvailable === null && '⏳ AI Reader: Checking...'}
+                    {ollamaAvailable === null && (<><span className="spinner" /> AI Reader: Checking...</>)}
                   </span>
                   {ollamaAvailable === false && (
                     <button
@@ -577,7 +582,11 @@ US GPA and Letter Grade: ${results.avgGPA} or ${results.letter}`;
                                      pdfStatus.type === 'processing' ? '#fff3cd' : '#f8d7da',
                     color: pdfStatus.type === 'success' ? '#155724' :
                            pdfStatus.type === 'processing' ? '#856404' : '#721c24',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
                   }}>
+                    {pdfStatus.type === 'processing' && <span className="spinner" />}
                     {pdfStatus.message}
                   </div>
                 )}
