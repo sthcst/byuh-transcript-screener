@@ -52,6 +52,13 @@ export const extractTranscriptData = async (imageBase64) => {
       images: [imageBase64],
       stream: false,
       format: 'json',
+      // Without num_predict, Ollama's default output token limit can cut
+      // the response off mid-JSON before all subjects are written out.
+      // Without num_ctx, Ollama defaults new requests to a small 2048-token
+      // context regardless of what the model supports - a rasterized
+      // full-page image alone can consume most of that in image tokens,
+      // leaving almost no room for the actual JSON output.
+      options: { num_predict: 2048, num_ctx: 8192 },
     }),
   });
 
